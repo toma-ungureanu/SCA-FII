@@ -7,6 +7,23 @@
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="CoverageViewManager">
+    <option name="myElementSize" value="209" />
+  </component>
+  <component name="DatabaseView">
+    <option name="SHOW_INTERMEDIATE" value="true" />
+    <option name="GROUP_DATA_SOURCES" value="true" />
+    <option name="GROUP_SCHEMA" value="true" />
+    <option name="GROUP_CONTENTS" value="false" />
+    <option name="SORT_POSITIONED" value="false" />
+    <option name="SHOW_EMPTY_GROUPS" value="false" />
+    <option name="AUTO_SCROLL_FROM_SOURCE" value="false" />
+    <option name="HIDDEN_KINDS">
+      <set />
+    </option>
+    <expand />
+    <select />
+  </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
@@ -28,6 +45,9 @@
     <property name="WebServerToolWindowFactoryState" value="false" />
     <property name="aspect.path.notification.shown" value="true" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="project.structure.last.edited" value="Libraries" />
+    <property name="project.structure.proportion" value="0.0" />
+    <property name="project.structure.side.proportion" value="0.0" />
     <property name="settings.editor.selected.configurable" value="vcs.Git" />
   </component>
   <component name="RecentsManager">
@@ -100,7 +120,7 @@
       <workItem from="1582216044942" duration="4289000" />
       <workItem from="1582618284484" duration="14311000" />
       <workItem from="1582725522987" duration="189000" />
-      <workItem from="1583165134140" duration="35019000" />
+      <workItem from="1583165134140" duration="46247000" />
     </task>
     <servers />
   </component>
@@ -132,50 +152,50 @@
       <screen x="0" y="0" width="1536" height="824" />
     </state>
     <state x="549" y="168" key="FileChooserDialogImpl/0.0.1536.824@0.0.1536.824" timestamp="1583250983909" />
-    <state width="1493" height="224" key="GridCell.Tab.0.bottom" timestamp="1583250864541">
+    <state width="1493" height="223" key="GridCell.Tab.0.bottom" timestamp="1583261511510">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="224" key="GridCell.Tab.0.bottom/0.0.1536.824@0.0.1536.824" timestamp="1583250864541" />
-    <state width="1493" height="224" key="GridCell.Tab.0.center" timestamp="1583250864541">
+    <state width="1493" height="223" key="GridCell.Tab.0.bottom/0.0.1536.824@0.0.1536.824" timestamp="1583261511510" />
+    <state width="1493" height="223" key="GridCell.Tab.0.center" timestamp="1583261511510">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="224" key="GridCell.Tab.0.center/0.0.1536.824@0.0.1536.824" timestamp="1583250864541" />
-    <state width="1493" height="224" key="GridCell.Tab.0.left" timestamp="1583250864541">
+    <state width="1493" height="223" key="GridCell.Tab.0.center/0.0.1536.824@0.0.1536.824" timestamp="1583261511510" />
+    <state width="1493" height="223" key="GridCell.Tab.0.left" timestamp="1583261511510">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="224" key="GridCell.Tab.0.left/0.0.1536.824@0.0.1536.824" timestamp="1583250864541" />
-    <state width="1493" height="224" key="GridCell.Tab.0.right" timestamp="1583250864541">
+    <state width="1493" height="223" key="GridCell.Tab.0.left/0.0.1536.824@0.0.1536.824" timestamp="1583261511510" />
+    <state width="1493" height="223" key="GridCell.Tab.0.right" timestamp="1583261511510">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="224" key="GridCell.Tab.0.right/0.0.1536.824@0.0.1536.824" timestamp="1583250864541" />
-    <state width="1493" height="221" key="GridCell.Tab.1.bottom" timestamp="1583249280261">
+    <state width="1493" height="223" key="GridCell.Tab.0.right/0.0.1536.824@0.0.1536.824" timestamp="1583261511510" />
+    <state width="1493" height="221" key="GridCell.Tab.1.bottom" timestamp="1583261511509">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="221" key="GridCell.Tab.1.bottom/0.0.1536.824@0.0.1536.824" timestamp="1583249280261" />
-    <state width="1493" height="221" key="GridCell.Tab.1.center" timestamp="1583249280261">
+    <state width="1493" height="221" key="GridCell.Tab.1.bottom/0.0.1536.824@0.0.1536.824" timestamp="1583261511509" />
+    <state width="1493" height="221" key="GridCell.Tab.1.center" timestamp="1583261511509">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="221" key="GridCell.Tab.1.center/0.0.1536.824@0.0.1536.824" timestamp="1583249280261" />
-    <state width="1493" height="221" key="GridCell.Tab.1.left" timestamp="1583249280261">
+    <state width="1493" height="221" key="GridCell.Tab.1.center/0.0.1536.824@0.0.1536.824" timestamp="1583261511509" />
+    <state width="1493" height="221" key="GridCell.Tab.1.left" timestamp="1583261511509">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="221" key="GridCell.Tab.1.left/0.0.1536.824@0.0.1536.824" timestamp="1583249280261" />
-    <state width="1493" height="221" key="GridCell.Tab.1.right" timestamp="1583249280261">
+    <state width="1493" height="221" key="GridCell.Tab.1.left/0.0.1536.824@0.0.1536.824" timestamp="1583261511509" />
+    <state width="1493" height="221" key="GridCell.Tab.1.right" timestamp="1583261511509">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state width="1493" height="221" key="GridCell.Tab.1.right/0.0.1536.824@0.0.1536.824" timestamp="1583249280261" />
-    <state x="277" y="55" key="SettingsEditor" timestamp="1583250991404">
+    <state width="1493" height="221" key="GridCell.Tab.1.right/0.0.1536.824@0.0.1536.824" timestamp="1583261511509" />
+    <state x="277" y="0" key="SettingsEditor" timestamp="1583255380384">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state x="277" y="55" key="SettingsEditor/0.0.1536.824@0.0.1536.824" timestamp="1583250991404" />
+    <state x="277" y="0" key="SettingsEditor/0.0.1536.824@0.0.1536.824" timestamp="1583255380384" />
     <state x="465" y="237" key="com.intellij.ide.util.TipDialog" timestamp="1582725522979">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
     <state x="465" y="237" key="com.intellij.ide.util.TipDialog/0.0.1536.824@0.0.1536.824" timestamp="1582725522979" />
-    <state x="498" y="306" key="com.intellij.jarRepository.RepositoryAttachDialog-DOWNLOAD" timestamp="1582020514827">
+    <state x="498" y="306" key="com.intellij.jarRepository.RepositoryAttachDialog-DOWNLOAD" timestamp="1583255373865">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
-    <state x="498" y="306" key="com.intellij.jarRepository.RepositoryAttachDialog-DOWNLOAD/0.0.1536.824@0.0.1536.824" timestamp="1582020514827" />
+    <state x="498" y="306" key="com.intellij.jarRepository.RepositoryAttachDialog-DOWNLOAD/0.0.1536.824@0.0.1536.824" timestamp="1583255373865" />
     <state x="209" y="33" key="new project wizard" timestamp="1582725707900">
       <screen x="0" y="0" width="1536" height="824" />
     </state>
@@ -193,25 +213,20 @@
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/src/communication/PaymentGateway.java</url>
-          <line>121</line>
-          <option name="timeStamp" value="72" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/src/communication/PaymentGateway.java</url>
-          <line>134</line>
-          <option name="timeStamp" value="73" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/src/communication/Client.java</url>
-          <line>115</line>
-          <option name="timeStamp" value="75" />
+          <line>228</line>
+          <option name="timeStamp" value="86" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/utils/Utils.java</url>
+          <line>113</line>
+          <option name="timeStamp" value="88" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/Tema1_SCA$Merchant.ic" NAME="Merchant Coverage Results" MODIFIED="1583226375727" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="idea" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false">
+    <SUITE FILE_PATH="coverage/Tema1_SCA$Merchant.ic" NAME="Merchant Coverage Results" MODIFIED="1583259038421" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="idea" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false">
       <FILTER>crypto.*</FILTER>
     </SUITE>
   </component>

@@ -7,10 +7,7 @@ import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import java.nio.ByteBuffer;
-import java.security.InvalidKeyException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
+import java.security.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class Utils
@@ -93,5 +90,27 @@ public class Utils
         Cipher cipher = Cipher.getInstance("RSA");
         cipher.init(Cipher.ENCRYPT_MODE, privateKey);
         return cipher.doFinal(MessageDigest.getInstance("SHA-256").digest(buffer));
+    }
+
+    public static boolean checkSignature(byte[] encrSignature, PublicKey publicKey, byte[] toCompare) throws NoSuchPaddingException,
+            NoSuchAlgorithmException, BadPaddingException, IllegalBlockSizeException, InvalidKeyException
+    {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.DECRYPT_MODE, publicKey);
+        byte[] decryptedMessageHash = cipher.doFinal(encrSignature);
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest(toCompare);
+        if (decryptedMessageHash.length != hash.length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < decryptedMessageHash.length; i++)
+        {
+            if (decryptedMessageHash[i] != hash[i])
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -141,21 +141,9 @@ public class Client
         out.write(decrMsg, sessionIDsize + 1, decrMsg.length - sessionIDsize - 1);
         byte[] encrSignature = out.toByteArray();
 
-        Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.DECRYPT_MODE, merchantPubKey);
-        byte[] decryptedMessageHash = cipher.doFinal(encrSignature);
-        byte[] toCompare = MessageDigest.getInstance("SHA-256").digest(sessionIDBytes);
-        if (decryptedMessageHash.length != toCompare.length)
+        if (!checkSignature(encrSignature, merchantPubKey, sessionIDBytes))
         {
             return false;
-        }
-
-        for (int i = 0; i < decryptedMessageHash.length; i++)
-        {
-            if (decryptedMessageHash[i] != toCompare[i])
-            {
-                return false;
-            }
         }
 
         this.sessionID = bytesToLong(sessionIDBytes);
@@ -236,18 +224,30 @@ public class Client
     private byte[] preparePOPayload(String orderDesc, double amount) throws IOException
     {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        long nonce = generateNonce();
+        System.out.println("NONCE IS: " +  nonce);
+        int poSize = intToBytes(orderDesc.length()).length +
+                     orderDesc.getBytes().length +
+                     intToBytes(Long.BYTES).length +
+                     longToBytes(sessionID).length +
+                     intToBytes(Double.BYTES).length +
+                     doubleToBytes(amount).length +
+                     intToBytes(Long.BYTES).length +
+                     longToBytes(nonce).length;
+
+        outputStream.write(intToBytes(poSize));
 
         outputStream.write(intToBytes(orderDesc.length()));
         outputStream.write(orderDesc.getBytes());
 
-        outputStream.write(intToBytes(SIZE_OF_LONG));
+        outputStream.write(intToBytes(Long.BYTES));
         outputStream.write(longToBytes(sessionID));
 
-        outputStream.write(intToBytes(SIZE_OF_DOUBLE));
+        outputStream.write(intToBytes(Double.BYTES));
         outputStream.write(doubleToBytes(amount));
 
-        outputStream.write(intToBytes(SIZE_OF_LONG));
-        outputStream.write(longToBytes(generateNonce()));
+        outputStream.write(intToBytes(Long.BYTES));
+        outputStream.write(longToBytes(nonce));
 
         return outputStream.toByteArray();
     }
@@ -274,16 +274,16 @@ public class Client
         outputStream.write(intToBytes(pin.length()));
         outputStream.write(pin.getBytes());
 
-        outputStream.write(intToBytes(SIZE_OF_LONG));
+        outputStream.write(intToBytes(Long.BYTES));
         outputStream.write(longToBytes(this.sessionID));
 
-        outputStream.write(intToBytes(SIZE_OF_DOUBLE));
+        outputStream.write(intToBytes(Double.BYTES));
         outputStream.write(doubleToBytes(amount));
 
         outputStream.write(intToBytes(this.asymKeysInfr.getPublicKey().getEncoded().length));
         outputStream.write(this.asymKeysInfr.getPublicKey().getEncoded());
 
-        outputStream.write(SIZE_OF_LONG);
+        outputStream.write(intToBytes(Integer.BYTES));
         outputStream.write(longToBytes(generateNonce()));
 
         outputStream.write(intToBytes(merchantName.length()));

@@ -2,12 +2,14 @@ package communication;
 
 import crypto.AsymKeysInfrastructure;
 import crypto.SymKeysInfrastructure;
+import org.javatuples.Pair;
 
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
 import java.net.*;
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.util.Arrays;
 import java.util.concurrent.ThreadLocalRandom;
@@ -60,7 +62,7 @@ public class Merchant
             this.clientSymKeyInfr = new SymKeysInfrastructure(new SecretKeySpec(decrCustomerSymKey, "AES"));
 
             //merchant -> client: {acknowledgement}clientSymmetricKey
-            this.client2MerchantOutput.writeObject(clientSymKeyInfr.encryptMessage(ACKNOWLEDGE_CLIENT.getBytes()));
+            this.client2MerchantOutput.writeObject(this.clientSymKeyInfr.encryptMessage(ACKNOWLEDGE_CLIENT.getBytes()));
             return true;
         }
         catch (IOException | ClassNotFoundException | InvalidKeyException | NoSuchAlgorithmException |
@@ -75,19 +77,19 @@ public class Merchant
     {
         // merchant -> client : merchantPubKey
         this.merchant2GatewayInput = new ObjectInputStream(this.merchant2GatewaySocket.getInputStream());
-        this.paymentGatewayPubKey = (PublicKey) merchant2GatewayInput.readObject();
+        this.paymentGatewayPubKey = (PublicKey) this.merchant2GatewayInput.readObject();
 
         // client -> merchant : clientPubKey
         this.merchant2GatewayOutput = new ObjectOutputStream(this.merchant2GatewaySocket.getOutputStream());
-        merchant2GatewayOutput.writeObject(this.asymKeysInfr.getPublicKey());
+        this.merchant2GatewayOutput.writeObject(this.asymKeysInfr.getPublicKey());
 
         // client -> merchant: {clientSymmetricKey}merchantPubKey
-        byte[] encrCustomerSymKey = asymKeysInfr.encryptDecryptMessage(merchantSymKeyInfr.getSecretKey().getEncoded(), Cipher.ENCRYPT_MODE, paymentGatewayPubKey, null);
+        byte[] encrCustomerSymKey = this.asymKeysInfr.encryptDecryptMessage(this.merchantSymKeyInfr.getSecretKey().getEncoded(), Cipher.ENCRYPT_MODE, this.paymentGatewayPubKey, null);
         merchant2GatewayOutput.writeObject(encrCustomerSymKey);
 
         // merchant -> client: {acknowledgement}clientSymmetricKey
-        byte[] encrAcknowledge = (byte[]) merchant2GatewayInput.readObject();
-        byte[] acknowledge = merchantSymKeyInfr.decryptMessage(encrAcknowledge);
+        byte[] encrAcknowledge = (byte[]) this.merchant2GatewayInput.readObject();
+        byte[] acknowledge = this.merchantSymKeyInfr.decryptMessage(encrAcknowledge);
         if (Arrays.equals(acknowledge, ACKNOWLEDGE_GATEWAY.getBytes()))
         {
             System.out.println("Communication between merchant and payment gateway is secure, you can proceed!");
@@ -107,9 +109,9 @@ public class Merchant
             byte[] commandInfo = this.clientSymKeyInfr.decryptMessage(encrCommandInfo);
 
             int offset = 0;
-            ByteBuffer byteBuffer = ByteBuffer.allocate(SIZE_OF_INT);
-            byteBuffer.put(commandInfo, 0, SIZE_OF_INT);
-            offset += SIZE_OF_INT;
+            ByteBuffer byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+            byteBuffer.put(commandInfo, 0, Integer.BYTES);
+            offset += Integer.BYTES;
             int pmLength = bytesToInt(byteBuffer.array());
 
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -120,7 +122,21 @@ public class Merchant
             byteArrayOutputStream.reset();
             byteArrayOutputStream.write(commandInfo, offset + 1, commandInfo.length - offset - 1);
             byte[] po = byteArrayOutputStream.toByteArray();
-            deserializePO(po);
+
+            Pair<byte[], byte[]> pair = deserializePO(po);
+            if (pair == null)
+            {
+                return false;
+            }
+
+            byte[] sessionId = pair.getValue0();
+            byte[] amount = pair.getValue1();
+
+            if (!send2Pg(pm, sessionId, amount))
+            {
+                System.out.println("Couldn't send the command further to the payment gateway!");
+                return false;
+            }
             return true;
         }
         catch (IOException | ClassNotFoundException excp)
@@ -130,44 +146,121 @@ public class Merchant
         }
     }
 
-    private boolean deserializePO(byte[] po)
+    private boolean send2Pg(byte[] pm, byte[] sessionId, byte[] amount)
     {
-        ByteBuffer byteBuffer = ByteBuffer.allocate(SIZE_OF_INT);
-        byteBuffer.put(po, 0, SIZE_OF_INT);
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try
+        {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            byteArrayOutputStream.write(sessionId);
+            byteArrayOutputStream.write(this.clientPubKey.getEncoded());
+            byteArrayOutputStream.write(amount);
+            byte[] signature = generateSignature(byteArrayOutputStream.toByteArray(), this.asymKeysInfr.getPrivateKey());
 
+            byteArrayOutputStream.reset();
+            byteArrayOutputStream.write(intToBytes(pm.length));
+            byteArrayOutputStream.write(pm);
+            byteArrayOutputStream.write(signature);
+            this.merchant2GatewayOutput.writeObject(this.merchantSymKeyInfr.encryptMessage(byteArrayOutputStream.toByteArray()));
+            return true;
+        }
+        catch (IOException | NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException |
+                BadPaddingException | IllegalBlockSizeException exception)
+        {
+            exception.printStackTrace();
+            return false;
+        }
+    }
+
+    private Pair<byte[], byte[]> deserializePO(byte[] po)
+    {
+        ByteBuffer byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+        byteBuffer.put(po, 0, Integer.BYTES);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        int poSize = bytesToInt(byteBuffer.array());
+        int offset = Integer.BYTES;
+
+        byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+        byteBuffer.put(po, offset, Integer.BYTES);
+        offset += Integer.BYTES;
         int orderDescSize = bytesToInt(byteBuffer.array());
-        int offset = SIZE_OF_INT;
         outputStream.write(po, offset, orderDescSize);
         byte[] orderDesc = outputStream.toByteArray();
         offset += orderDesc.length;
 
-
-        byteBuffer = ByteBuffer.allocate(SIZE_OF_INT);
-        byteBuffer.put(po, offset, SIZE_OF_INT);
-        long sessionIDSize = bytesToInt(byteBuffer.array());
-        offset += SIZE_OF_INT;
+        byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+        byteBuffer.put(po, offset, Integer.BYTES);
+        int sessionIDSize = bytesToInt(byteBuffer.array());
+        offset += Integer.BYTES;
         outputStream.reset();
-        outputStream.write(po, offset, (int) sessionIDSize);
+        outputStream.write(po, offset, sessionIDSize);
         byte[] sessionIDBytes = outputStream.toByteArray();
         long sessionId = bytesToLong(sessionIDBytes);
-        offset += sessionIDBytes.length;
 
-        byteBuffer = ByteBuffer.allocate(SIZE_OF_INT);
-        byteBuffer.put(po, offset, SIZE_OF_INT);
-        long amountSize = bytesToInt(byteBuffer.array());
-        offset += SIZE_OF_INT;
+        offset += sessionIDBytes.length;
+        byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+        byteBuffer.put(po, offset, Integer.BYTES);
+        int amountSize = bytesToInt(byteBuffer.array());
+        offset += Integer.BYTES;
         outputStream.reset();
-        outputStream.write(po, offset, (int) amountSize);
+        outputStream.write(po, offset, amountSize);
         byte[] amountBytes = outputStream.toByteArray();
         double amount = bytesToDouble(amountBytes);
 
-        return true;
+        offset += amountBytes.length;
+        byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+        byteBuffer.put(po, offset, Integer.BYTES);
+        int nonceSize = bytesToInt(byteBuffer.array());
+        offset += Integer.BYTES;
+        outputStream.reset();
+        outputStream.write(po, offset, nonceSize);
+        byte[] nonceBytes = outputStream.toByteArray();
+        long nonce = bytesToLong(nonceBytes);
+
+        offset += nonceBytes.length;
+        outputStream.reset();
+        outputStream.write(po, offset, po.length - offset);
+        byte[] encrSig = outputStream.toByteArray();
+
+        if (!checkPOSig(poSize, orderDescSize, orderDesc, sessionIDSize, sessionIDBytes, amountSize, amountBytes,
+                nonceSize, nonceBytes, encrSig))
+        {
+            System.out.println("Forged signature detected! Aborting...");
+            return null;
+        }
+
+        return new Pair<>(sessionIDBytes, amountBytes);
     }
 
-    public boolean deserializePM()
+    private boolean checkPOSig(int poSize, int orderDescSize, byte[] orderDesc, int sessionIdSize, byte[] sessionIdBytes,
+                               int amountSize, byte[] amountBytes, int nonceSize, byte[] nonceBytes, byte[] encrSig)
     {
-        return true;
+        try
+        {
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            outputStream.write(intToBytes(poSize));
+
+            outputStream.write(intToBytes(orderDescSize));
+            outputStream.write(orderDesc);
+
+            outputStream.write(intToBytes(sessionIdSize));
+            outputStream.write(sessionIdBytes);
+
+            outputStream.write(intToBytes(amountSize));
+            outputStream.write(amountBytes);
+
+            outputStream.write(intToBytes(nonceSize));
+            outputStream.write(nonceBytes);
+
+            byte[] po = outputStream.toByteArray();
+
+            return checkSignature(encrSig, this.clientPubKey, po);
+        }
+        catch (IOException | NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException e)
+        {
+            e.printStackTrace();
+            return false;
+        }
+
     }
 
     public void sendSession() throws NoSuchAlgorithmException, IOException, NoSuchPaddingException, BadPaddingException, IllegalBlockSizeException, InvalidKeyException
@@ -207,7 +300,6 @@ public class Merchant
 
     private boolean initClientConnection()
     {
-        // starts server and waits for a connection
         try
         {
             this.merchantServer = new ServerSocket(MERCHANT_TO_CLIENT_PORT);
@@ -277,7 +369,7 @@ public class Merchant
 
         if (!receiveCommandInfo())
         {
-            throw new ExceptionInInitializerError("Couldn't deserialize the command information correctly!");
+            throw new ExceptionInInitializerError("An unexpected problem occurred");
         }
         System.out.println("Order received!");
     }
