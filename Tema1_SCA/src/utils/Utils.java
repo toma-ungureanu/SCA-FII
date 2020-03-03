@@ -15,6 +15,9 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class Utils
 {
+    public static final int SIZE_OF_LONG = 8;
+    public static final int SIZE_OF_DOUBLE = 8;
+
     @NotNull
     public static byte[] doubleToBytes(double value)
     {
@@ -29,6 +32,20 @@ public class Utils
         ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
         buffer.putLong(x);
         return buffer.array();
+    }
+
+    @NotNull
+    public static byte[] intToBytes(int x)
+    {
+        ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
+        buffer.putInt(x);
+        return buffer.array();
+    }
+
+    @NotNull
+    public static int bytesToInt(byte[] bytes)
+    {
+        return ByteBuffer.wrap(bytes).getInt();
     }
 
     public static double bytesToDouble(byte[] bytes)

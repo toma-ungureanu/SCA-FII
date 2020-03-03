@@ -2,8 +2,6 @@ package communication;
 
 import crypto.AsymKeysInfrastructure;
 import crypto.SymKeysInfrastructure;
-import org.jetbrains.annotations.NotNull;
-import utils.Utils;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -22,32 +20,37 @@ import static utils.Utils.*;
 
 public class Client
 {
-    private static final int CLIENT_TO_MERCHANT_PORT = 50000;
-    private static final String ACKNOWLEDGE = "Ready for communication!" + CLIENT_TO_MERCHANT_PORT;
+    private static final int CLIENT_TO_MERCHANT_PORT = 40000;
+    private static final int CLIENT_TO_PG_PORT = 60000;
+    private static final String ACKNOWLEDGE_MERCHANT = "Ready for communication!" + CLIENT_TO_MERCHANT_PORT;
+    private static final String ACKNOWLEDGE_PAYMENT_GATEWAY = "Ready for communication!" + CLIENT_TO_PG_PORT;
     private static final String PRIVATE_KEY_PATH = "\\customer_keys\\privateKey.key";
     private static final String PUBLIC_KEY_PATH = "\\customer_keys\\publicKey.pub";
-    private static final String DATE_FORMAT = "MM/yyyy";
+    private static final String DATE_FORMAT = "dd/MM/yyyy";
     private static final String CARD_REGEX = "^(?:4[0-9]{12}(?:[0-9]{3})?|[25][1-7][0-9]{14}|6(?:011|5[0-9][0-9])[0-9]" +
             "{12}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|(?:2131|1800|35\\d{3})\\d{11})$";
     private static final String PIN_REGEX = "^[0-9]{4}$";
-    private static final int SIZE_OF_LONG = 8;
-    private static final int SIZE_OF_DOUBLE = 8;
 
     private AsymKeysInfrastructure asymKeysInfr;
-    private SymKeysInfrastructure symKeysInfr;
+    private SymKeysInfrastructure client2MerchantSymKeysInfr;
+    private SymKeysInfrastructure client2PgSymKeysInfr;
+
     private PublicKey merchantPubKey;
+    private PublicKey pgPubKey;
+
     private Socket client2MerchantSocket;
+    private Socket client2PgSocket;
+
     private ObjectInputStream client2MerchantInput;
+    private ObjectInputStream client2PgInput;
+
     private ObjectOutputStream client2MerchantOutput;
+    private ObjectOutputStream client2PgOutput;
+
     private long sessionID;
 
     public Client(String address)
     {
-        if (!initMerchantConnection(address))
-        {
-            throw new ExceptionInInitializerError("Error while initializing connection!");
-        }
-
         this.asymKeysInfr = new AsymKeysInfrastructure();
         if (!this.asymKeysInfr.loadRSAKeys(PUBLIC_KEY_PATH, PRIVATE_KEY_PATH))
         {
@@ -57,7 +60,8 @@ public class Client
 
         try
         {
-            this.symKeysInfr = new SymKeysInfrastructure(null);
+            this.client2MerchantSymKeysInfr = new SymKeysInfrastructure(null);
+            this.client2PgSymKeysInfr  = new SymKeysInfrastructure(null);
         }
         catch (InvalidKeyException | NoSuchAlgorithmException | NoSuchPaddingException |
                 InvalidAlgorithmParameterException exception)
@@ -77,15 +81,43 @@ public class Client
         client2MerchantOutput.writeObject(this.asymKeysInfr.getPublicKey());
 
         // client -> merchant: {clientSymmetricKey}merchantPubKey
-        byte[] encrCustomerSymKey = asymKeysInfr.encryptDecryptMessage(symKeysInfr.getSecretKey().getEncoded(), Cipher.ENCRYPT_MODE, merchantPubKey, null);
+        byte[] encrCustomerSymKey = asymKeysInfr.encryptDecryptMessage(client2MerchantSymKeysInfr.getSecretKey().getEncoded(), Cipher.ENCRYPT_MODE, merchantPubKey, null);
         client2MerchantOutput.writeObject(encrCustomerSymKey);
 
         // merchant -> client: {acknowledgement}clientSymmetricKey
         byte[] encrAcknowledge = (byte[]) client2MerchantInput.readObject();
-        byte[] acknowledge = symKeysInfr.decryptMessage(encrAcknowledge);
-        if (Arrays.equals(acknowledge, ACKNOWLEDGE.getBytes()))
+        byte[] acknowledge = client2MerchantSymKeysInfr.decryptMessage(encrAcknowledge);
+        if (Arrays.equals(acknowledge, ACKNOWLEDGE_MERCHANT.getBytes()))
         {
             System.out.println("Communication is secure, you can proceed!");
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    public boolean client2pgHandshake() throws IOException, ClassNotFoundException
+    {
+        // payment gateway -> client : payment gateway PubKey
+        this.client2PgInput = new ObjectInputStream(this.client2PgSocket.getInputStream());
+        this.pgPubKey = (PublicKey) client2PgInput.readObject();
+
+        // client -> payment gateway : clientPubKey
+        this.client2PgOutput = new ObjectOutputStream(this.client2PgSocket.getOutputStream());
+        client2PgOutput.writeObject(this.asymKeysInfr.getPublicKey());
+
+        // client -> payment gateway: {clientSymmetricKey}pgPubKey
+        byte[] encrCustomerSymKey = asymKeysInfr.encryptDecryptMessage(client2PgSymKeysInfr.getSecretKey().getEncoded(), Cipher.ENCRYPT_MODE, pgPubKey, null);
+        client2PgOutput.writeObject(encrCustomerSymKey);
+
+        // merchant -> client: {acknowledgement}clientSymmetricKey
+        byte[] encrAcknowledge = (byte[]) client2PgInput.readObject();
+        byte[] acknowledge = client2PgSymKeysInfr.decryptMessage(encrAcknowledge);
+        if (Arrays.equals(acknowledge, ACKNOWLEDGE_PAYMENT_GATEWAY.getBytes()))
+        {
+            System.out.println("Communication between client and payment gateway is secure, you can proceed!");
             return true;
         }
         else
@@ -98,7 +130,7 @@ public class Client
             NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException
     {
         byte[] encrMsg = (byte[]) client2MerchantInput.readObject();
-        byte[] decrMsg = symKeysInfr.decryptMessage(encrMsg);
+        byte[] decrMsg = client2MerchantSymKeysInfr.decryptMessage(encrMsg);
         int sessionIDsize = decrMsg[0];
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -135,17 +167,23 @@ public class Client
                                    String orderDesc) throws IOException
     {
         byte[] pm = preparePM(cardNumber, expDate, pin, amount, merchantName);
+        if (pm == null)
+        {
+            System.out.println("Couldn't establish the payment information");
+            return false;
+        }
+
         byte[] po = preparePO(orderDesc, amount);
-        if( pm == null || po == null)
+        if (po == null)
         {
             return false;
         }
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        outputStream.write(pm.length);
+        outputStream.write(intToBytes(pm.length));
         outputStream.write(pm);
         outputStream.write(po);
-        client2MerchantOutput.writeObject(outputStream.toByteArray());
+        client2MerchantOutput.writeObject(this.client2MerchantSymKeysInfr.encryptMessage(outputStream.toByteArray()));
         return true;
     }
 
@@ -164,14 +202,16 @@ public class Client
             outputStream.write(piToSign.length);
             outputStream.write(piToSign);
             outputStream.write(signedPi);
+
             byte[] pm = outputStream.toByteArray();
-            byte[] encrPm = symKeysInfr.encryptMessage(pm);
+            return client2PgSymKeysInfr.encryptMessage(pm);
+
         }
         catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException | IOException exception)
         {
             exception.printStackTrace();
+            return null;
         }
-        return null;
     }
 
     private byte[] preparePO(String orderDesc, double amount)
@@ -179,10 +219,10 @@ public class Client
         try
         {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            String toSign = orderDesc + sessionID + amount + generateNonce();
-            byte[] signature = generateSignature(toSign.getBytes(), this.asymKeysInfr.getPrivateKey());
-            outputStream.write(toSign.getBytes().length);
-            outputStream.write(toSign.getBytes());
+            byte[] toSign = preparePOPayload(orderDesc, amount);
+            byte[] signature = generateSignature(toSign, this.asymKeysInfr.getPrivateKey());
+            outputStream.write(toSign.length);
+            outputStream.write(toSign);
             outputStream.write(signature);
             return outputStream.toByteArray();
         }
@@ -193,6 +233,24 @@ public class Client
         }
     }
 
+    private byte[] preparePOPayload(String orderDesc, double amount) throws IOException
+    {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        outputStream.write(intToBytes(orderDesc.length()));
+        outputStream.write(orderDesc.getBytes());
+
+        outputStream.write(intToBytes(SIZE_OF_LONG));
+        outputStream.write(longToBytes(sessionID));
+
+        outputStream.write(intToBytes(SIZE_OF_DOUBLE));
+        outputStream.write(doubleToBytes(amount));
+
+        outputStream.write(intToBytes(SIZE_OF_LONG));
+        outputStream.write(longToBytes(generateNonce()));
+
+        return outputStream.toByteArray();
+    }
 
     private byte[] createPiToSign(String cardNumber, String expDate, String pin, double amount, String merchantName) throws IOException
     {
@@ -206,29 +264,30 @@ public class Client
         */
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        outputStream.write(cardNumber.length());
+
+        outputStream.write(intToBytes(cardNumber.length()));
         outputStream.write(cardNumber.getBytes());
 
-        outputStream.write(expDate.length());
+        outputStream.write(intToBytes(expDate.length()));
         outputStream.write(expDate.getBytes());
 
-        outputStream.write(pin.length());
+        outputStream.write(intToBytes(pin.length()));
         outputStream.write(pin.getBytes());
 
-        outputStream.write(SIZE_OF_LONG);
+        outputStream.write(intToBytes(SIZE_OF_LONG));
         outputStream.write(longToBytes(this.sessionID));
 
-        outputStream.write(SIZE_OF_DOUBLE);
+        outputStream.write(intToBytes(SIZE_OF_DOUBLE));
         outputStream.write(doubleToBytes(amount));
+
+        outputStream.write(intToBytes(this.asymKeysInfr.getPublicKey().getEncoded().length));
+        outputStream.write(this.asymKeysInfr.getPublicKey().getEncoded());
 
         outputStream.write(SIZE_OF_LONG);
         outputStream.write(longToBytes(generateNonce()));
 
-        outputStream.write(merchantName.length());
+        outputStream.write(intToBytes(merchantName.length()));
         outputStream.write(merchantName.getBytes());
-
-        outputStream.write(this.asymKeysInfr.getPublicKey().getEncoded().length);
-        outputStream.write(this.asymKeysInfr.getPublicKey().getEncoded());
 
         return outputStream.toByteArray();
     }
@@ -253,7 +312,7 @@ public class Client
             return false;
         }
 
-        if (today.isBefore(expirationDate))
+        if (expirationDate.isBefore(today))
         {
             System.out.println("Card is expired!");
             return false;
@@ -269,12 +328,11 @@ public class Client
         return true;
     }
 
-    private boolean initMerchantConnection(String address)
+    public boolean initMerchantConnection(String address)
     {
         try
         {
             this.client2MerchantSocket = new Socket(address, CLIENT_TO_MERCHANT_PORT);
-            System.out.println("Connected to the merchant!");
             return true;
         }
         catch (IOException exception)
@@ -284,32 +342,74 @@ public class Client
         }
     }
 
+    public boolean initPgConnection(String address)
+    {
+        try
+        {
+            this.client2PgSocket = new Socket(address, CLIENT_TO_PG_PORT);
+            return true;
+        }
+        catch (IOException exception)
+        {
+            exception.printStackTrace();
+            return false;
+        }
+    }
+
+    public void connect(String address) throws IOException, ClassNotFoundException, IllegalBlockSizeException,
+            InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException
+    {
+        if (!initMerchantConnection(address))
+        {
+            throw new ExceptionInInitializerError("Error while initializing connection with the merchant!");
+        }
+
+        if (!client2MerchantHandshake())
+        {
+            throw new ExceptionInInitializerError("Cannot proceed, communication handshake with merchant failed!");
+        }
+        System.out.println("Connection with merchant succeeded!\n");
+
+        if (!receiveSession())
+        {
+            throw new ExceptionInInitializerError("Session initialization failed! Aborting...");
+        }
+
+        if (!initPgConnection(address))
+        {
+            throw new ExceptionInInitializerError("Error while initializing connection with the payment gateway!");
+        }
+
+        if (!client2pgHandshake())
+        {
+            throw new ExceptionInInitializerError("Error while initializing connection with the payment gateway!");
+        }
+        System.out.println("Connection with payment gateway succeeded!");
+    }
+
+    public void command(String cardNumber, String expDate, String PIN, double amount, String merchantName, String orderDesc) throws IOException
+    {
+        if (!sendCommandInfo(cardNumber, expDate, PIN, amount, merchantName, orderDesc))
+        {
+            System.out.println("Order could not be sent!");
+        }
+        System.out.println("Order sent!");
+    }
+
     public static void main(String[] args) throws IOException, ClassNotFoundException, IllegalBlockSizeException,
             InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException
     {
         String address = "127.0.0.1";
         Client client = new Client(address);
-        if (!client.client2MerchantHandshake())
-        {
-            System.out.println("Cannot proceed, communication handshake failed!");
-        }
-        if (!client.receiveSession())
-        {
-            System.out.println("Session initialization failed! Aborting...");
-        }
+        client.connect(address);
 
-
-        String expDate = "01-2022";
+        String expDate = "01/01/2022";
         String cardNumber = "4197394215553472";
         String PIN = "1234";
         String merchantName = "EMag";
         double amount = 4195.95;
         String orderDesc = "Produse: 1 x Laptop Lenovo, 16Gb RAM 2400MHZ, i7 6-core 3.7GHZ, GTX-1060Ti, SSD-512GB";
 
-
-        if (!client.sendCommandInfo(cardNumber, expDate, PIN, amount, merchantName, orderDesc))
-        {
-            System.out.println("Order could not be sent!");
-        }
+        client.command(cardNumber, expDate, PIN, amount, merchantName, orderDesc);
     }
 }
