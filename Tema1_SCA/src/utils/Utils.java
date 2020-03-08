@@ -23,28 +23,9 @@ private static final String CARD_REGEX = "^(?:4[0-9]{12}(?:[0-9]{3})?|[25][1-7][
         "{12}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|(?:2131|1800|35\\d{3})\\d{11})$";
 private static final String PIN_REGEX = "^[0-9]{4}$";
 
-@NotNull
-public static byte[] doubleToBytes(double value)
+public static double bytesToDouble(byte[] bytes)
 {
-    byte[] bytes = new byte[8];
-    ByteBuffer.wrap(bytes).putDouble(value);
-    return bytes;
-}
-
-@NotNull
-public static byte[] longToBytes(long x)
-{
-    ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-    buffer.putLong(x);
-    return buffer.array();
-}
-
-@NotNull
-public static byte[] intToBytes(int x)
-{
-    ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
-    buffer.putInt(x);
-    return buffer.array();
+    return ByteBuffer.wrap(bytes).getDouble();
 }
 
 @NotNull
@@ -53,73 +34,12 @@ public static int bytesToInt(byte[] bytes)
     return ByteBuffer.wrap(bytes).getInt();
 }
 
-public static double bytesToDouble(byte[] bytes)
-{
-    return ByteBuffer.wrap(bytes).getDouble();
-}
-
-public static long generateNonce()
-{
-    ThreadLocalRandom random = ThreadLocalRandom.current();
-    return random.nextLong(1_000_000_000L, 10_000_000_000L);
-}
-
 public static long bytesToLong(byte[] bytes)
 {
     ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
     buffer.put(bytes);
     buffer.flip();//need flip
     return buffer.getLong();
-}
-
-public static boolean checkLuhn(@NotNull String cardNo)
-{
-    int nDigits = cardNo.length();
-    int nSum = 0;
-    boolean isSecond = false;
-    for (int i = nDigits - 1; i >= 0; i--)
-    {
-        int d = cardNo.charAt(i) - '0';
-        if (isSecond)
-        {
-            d *= 2;
-        }
-        nSum += d / 10;
-        nSum += d % 10;
-        isSecond = !isSecond;
-    }
-    return (nSum % 10 == 0);
-}
-
-public static byte[] generateSignature(@NotNull byte[] buffer, PrivateKey privateKey) throws NoSuchPaddingException, NoSuchAlgorithmException,
-        InvalidKeyException, BadPaddingException, IllegalBlockSizeException
-{
-    // create the hash containing the session id
-    Cipher cipher = Cipher.getInstance("RSA");
-    cipher.init(Cipher.ENCRYPT_MODE, privateKey);
-    return cipher.doFinal(MessageDigest.getInstance("SHA-256").digest(buffer));
-}
-
-public static boolean checkSignature(byte[] encrSignature, PublicKey publicKey, byte[] decrToCompare) throws NoSuchPaddingException,
-        NoSuchAlgorithmException, BadPaddingException, IllegalBlockSizeException, InvalidKeyException
-{
-    Cipher cipher = Cipher.getInstance("RSA");
-    cipher.init(Cipher.DECRYPT_MODE, publicKey);
-    byte[] decryptedMessageHash = cipher.doFinal(encrSignature);
-    byte[] hash = MessageDigest.getInstance("SHA-256").digest(decrToCompare);
-    if (decryptedMessageHash.length != hash.length)
-    {
-        return false;
-    }
-
-    for (int i = 0; i < decryptedMessageHash.length; i++)
-    {
-        if (decryptedMessageHash[i] != hash[i])
-        {
-            return false;
-        }
-    }
-    return true;
 }
 
 public static boolean checkCard(String cardNumber, String expDate, String pin)
@@ -156,6 +76,47 @@ public static boolean checkCard(String cardNumber, String expDate, String pin)
     return true;
 }
 
+public static boolean checkLuhn(@NotNull String cardNo)
+{
+    int nDigits = cardNo.length();
+    int nSum = 0;
+    boolean isSecond = false;
+    for (int i = nDigits - 1; i >= 0; i--)
+    {
+        int d = cardNo.charAt(i) - '0';
+        if (isSecond)
+        {
+            d *= 2;
+        }
+        nSum += d / 10;
+        nSum += d % 10;
+        isSecond = !isSecond;
+    }
+    return (nSum % 10 == 0);
+}
+
+public static boolean checkSignature(byte[] encrSignature, PublicKey publicKey, byte[] decrToCompare) throws NoSuchPaddingException,
+        NoSuchAlgorithmException, BadPaddingException, IllegalBlockSizeException, InvalidKeyException
+{
+    Cipher cipher = Cipher.getInstance("RSA");
+    cipher.init(Cipher.DECRYPT_MODE, publicKey);
+    byte[] decryptedMessageHash = cipher.doFinal(encrSignature);
+    byte[] hash = MessageDigest.getInstance("SHA-256").digest(decrToCompare);
+    if (decryptedMessageHash.length != hash.length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < decryptedMessageHash.length; i++)
+    {
+        if (decryptedMessageHash[i] != hash[i])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 @NotNull
 public static byte[] deserializeItem(byte[] text, int offset)
 {
@@ -167,5 +128,44 @@ public static byte[] deserializeItem(byte[] text, int offset)
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
     byteArrayOutputStream.write(text, offset, itemLength);
     return byteArrayOutputStream.toByteArray();
+}
+
+@NotNull
+public static byte[] doubleToBytes(double value)
+{
+    byte[] bytes = new byte[8];
+    ByteBuffer.wrap(bytes).putDouble(value);
+    return bytes;
+}
+
+public static long generateNonce()
+{
+    ThreadLocalRandom random = ThreadLocalRandom.current();
+    return random.nextLong(1_000_000_000L, 10_000_000_000L);
+}
+
+public static byte[] generateSignature(@NotNull byte[] buffer, PrivateKey privateKey) throws NoSuchPaddingException, NoSuchAlgorithmException,
+        InvalidKeyException, BadPaddingException, IllegalBlockSizeException
+{
+    // create the hash containing the session id
+    Cipher cipher = Cipher.getInstance("RSA");
+    cipher.init(Cipher.ENCRYPT_MODE, privateKey);
+    return cipher.doFinal(MessageDigest.getInstance("SHA-256").digest(buffer));
+}
+
+@NotNull
+public static byte[] intToBytes(int x)
+{
+    ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES);
+    buffer.putInt(x);
+    return buffer.array();
+}
+
+@NotNull
+public static byte[] longToBytes(long x)
+{
+    ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+    buffer.putLong(x);
+    return buffer.array();
 }
 }

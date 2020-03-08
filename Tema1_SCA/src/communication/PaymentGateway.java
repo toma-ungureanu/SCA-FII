@@ -1,22 +1,26 @@
 package communication;
+
 import crypto.AsymKeysInfrastructure;
 import crypto.SymKeysInfrastructure;
 import javafx.util.Pair;
-import org.jetbrains.annotations.NotNull;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
-import java.net.*;
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
-import java.util.Arrays;
 
 import static utils.Utils.*;
 
@@ -31,26 +35,16 @@ private static final String PUBLIC_KEY_PATH = "\\payment_gateway_keys\\publicKey
 private static final String RESPONSE = "Command has been processed successfully!";
 
 private AsymKeysInfrastructure asymKeysInfr;
-
-private SymKeysInfrastructure client2PgSymKeysInfr;
-private SymKeysInfrastructure merchant2PgSymKeysInfr;
-
-private ServerSocket merchant2PgServer;
-private ServerSocket client2PgServer;
-
-private Socket merchant2PgSocket;
 private Socket client2PgSocket;
-
-private ObjectInputStream client2PgInput;
-private ObjectOutputStream client2PgOutput;
-
+private SymKeysInfrastructure client2PgSymKeysInfr;
+private PublicKey clientPubKey;
 private ObjectInputStream merchant2pgInput;
 private ObjectOutputStream merchant2pgOutput;
-
-private PublicKey clientPubKey;
+private Socket merchant2PgSocket;
+private SymKeysInfrastructure merchant2PgSymKeysInfr;
 private PublicKey merchantPubKey;
 
-public PaymentGateway(String address)
+public PaymentGateway()
 {
     this.asymKeysInfr = new AsymKeysInfrastructure();
     if (!this.asymKeysInfr.loadRSAKeys(PUBLIC_KEY_PATH, PRIVATE_KEY_PATH))
@@ -68,86 +62,6 @@ public PaymentGateway(String address)
             InvalidAlgorithmParameterException exception)
     {
         exception.printStackTrace();
-    }
-}
-
-public boolean initMerchantConnection()
-{
-    // starts server and waits for a connection
-    try
-    {
-        this.merchant2PgServer = new ServerSocket(MERCHANT_TO_GATEWAY_PORT);
-        System.out.println("Payment Gateway started");
-        System.out.println("\nWaiting for merchant ...");
-
-        //initialize socket and input stream
-        this.merchant2PgSocket = this.merchant2PgServer.accept();
-        System.out.println("Merchant accepted");
-
-        return true;
-    }
-    catch(IOException exception)
-    {
-        exception.printStackTrace();
-        return false;
-    }
-}
-
-public boolean pg2MerchantHandshake() throws IOException, ClassNotFoundException
-{
-    try
-    {
-        // merchant -> client: merchant public key
-        this.merchant2pgOutput = new ObjectOutputStream(this.merchant2PgSocket.getOutputStream());
-        this.merchant2pgOutput.writeObject(asymKeysInfr.getPublicKey());
-
-        // client -> merchant: client public key
-        this.merchant2pgInput = new ObjectInputStream(this.merchant2PgSocket.getInputStream());
-        this.merchantPubKey = (PublicKey) this.merchant2pgInput.readObject();
-
-        // client -> merchant: {clientSymmetricKey}merchantPubKey
-        byte[] encrMerchantSymKey = (byte[]) this.merchant2pgInput.readObject();
-        byte[] decrMerchantSymKey = this.asymKeysInfr.encryptDecryptMessage(encrMerchantSymKey, Cipher.DECRYPT_MODE, null, null);
-        this.merchant2PgSymKeysInfr = new SymKeysInfrastructure(new SecretKeySpec(decrMerchantSymKey, "AES"));
-
-        //merchant -> client: {acknowledgement}clientSymmetricKey
-        this.merchant2pgOutput.writeObject(merchant2PgSymKeysInfr.encryptMessage(ACKNOWLEDGE_MERCHANT.getBytes()));
-        return true;
-    }
-    catch (IOException | ClassNotFoundException | InvalidKeyException | NoSuchAlgorithmException |
-            NoSuchPaddingException | InvalidAlgorithmParameterException exception)
-    {
-        exception.printStackTrace();
-        return false;
-    }
-}
-
-public boolean pg2ClientHandshake()
-{
-    try
-    {
-        // payment gateway -> client : payment gateway PubKey
-        this.client2PgOutput = new ObjectOutputStream(this.client2PgSocket.getOutputStream());
-        client2PgOutput.writeObject(this.asymKeysInfr.getPublicKey());
-
-        // client -> payment gateway : clientPubKey
-        this.client2PgInput = new ObjectInputStream(this.client2PgSocket.getInputStream());
-        this.clientPubKey = (PublicKey) client2PgInput.readObject();
-
-        // client -> payment gateway: {clientSymmetricKey}merchantPubKey
-        byte[] encrCustomerSymKey = (byte[]) this.client2PgInput.readObject();
-        byte[] decrCustomerSymKey = this.asymKeysInfr.encryptDecryptMessage(encrCustomerSymKey, Cipher.DECRYPT_MODE, null, null);
-        this.client2PgSymKeysInfr = new SymKeysInfrastructure(new SecretKeySpec(decrCustomerSymKey, "AES"));
-
-        // payment gateway -> client: {acknowledgement}clientSymmetricKey
-        this.client2PgOutput.writeObject(client2PgSymKeysInfr.encryptMessage(ACKNOWLEDGE_CLIENT.getBytes()));
-        return true;
-    }
-    catch (IOException | ClassNotFoundException | InvalidKeyException | NoSuchAlgorithmException |
-            NoSuchPaddingException | InvalidAlgorithmParameterException exception)
-    {
-        exception.printStackTrace();
-        return false;
     }
 }
 
@@ -184,6 +98,10 @@ public boolean commandFlow()
     try
     {
         Pair<byte[], byte[]> sessionID_amount = deserializePaymentInfo(receiveCommand());
+        if (sessionID_amount == null)
+        {
+            return false;
+        }
         sendResponse2Merchant(sessionID_amount);
         return true;
     }
@@ -194,13 +112,52 @@ public boolean commandFlow()
     }
 }
 
-public byte[] receiveCommand() throws IOException, ClassNotFoundException
+private boolean checkInfo(String cardN, String cardExp, String pin, byte[] sessionID, byte[] clientReceivedPubKey,
+                          byte[]amount, byte[] encrSig, byte[] nonce, byte[] merchantName)
+        throws IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException, IOException
 {
-    byte[] encrPaymentInfo = (byte[]) this.merchant2pgInput.readObject();
-    return this.merchant2PgSymKeysInfr.decryptMessage(encrPaymentInfo);
+    if (!checkCard(cardN, cardExp, pin))
+    {
+        System.out.println("Card Information incorrect!");
+        return false;
+    }
+
+    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+    //card number
+    byteArrayOutputStream.write(intToBytes(cardN.getBytes().length));
+    byteArrayOutputStream.write(cardN.getBytes());
+    //card expiration date
+    byteArrayOutputStream.write(intToBytes(cardExp.getBytes().length));
+    byteArrayOutputStream.write(cardExp.getBytes());
+    //pin
+    byteArrayOutputStream.write(intToBytes(pin.length()));
+    byteArrayOutputStream.write(pin.getBytes());
+    //session id
+    byteArrayOutputStream.write(intToBytes(Long.BYTES));
+    byteArrayOutputStream.write(sessionID);
+    //amount
+    byteArrayOutputStream.write(intToBytes(Double.BYTES));
+    byteArrayOutputStream.write(amount);
+    //client pubkey
+    byteArrayOutputStream.write(intToBytes(clientReceivedPubKey.length));
+    byteArrayOutputStream.write(clientReceivedPubKey);
+    //nonce
+    byteArrayOutputStream.write(intToBytes(Long.BYTES));
+    byteArrayOutputStream.write(nonce);
+    //merchant name
+    byteArrayOutputStream.write(intToBytes(merchantName.length));
+    byteArrayOutputStream.write(merchantName);
+
+    byte[] toCompare = byteArrayOutputStream.toByteArray();
+    if (!checkSignature(encrSig, clientPubKey, toCompare))
+    {
+        System.out.println("Signatures don't match!");
+        return false;
+    }
+    return true;
 }
 
-public Pair<byte[], byte[]> deserializePaymentInfo(byte[] decrPaymentInfo)
+private Pair<byte[], byte[]> deserializePaymentInfo(byte[] decrPaymentInfo)
 {
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
     ByteBuffer byteBuffer = ByteBuffer.allocate(Integer.BYTES);
@@ -208,46 +165,58 @@ public Pair<byte[], byte[]> deserializePaymentInfo(byte[] decrPaymentInfo)
     int pmLength = bytesToInt(byteBuffer.array());
     int offset = Integer.BYTES;
     byteArrayOutputStream.write(decrPaymentInfo, offset, pmLength);
+    offset += pmLength;
     byte[] encrPm = byteArrayOutputStream.toByteArray();
     byte[] decrPm = this.client2PgSymKeysInfr.decryptMessage(encrPm);
 
-    return deserializePM(decrPm);
+    byteArrayOutputStream.reset();
+    byteArrayOutputStream.write(decrPaymentInfo, offset, decrPaymentInfo.length - offset);
+    byte[] merchantSignature = byteArrayOutputStream.toByteArray();
+    return deserializePM(decrPm, merchantSignature);
 }
 
-public Pair<byte[], byte[]> deserializePM(byte[] pm)
+private Pair<byte[], byte[]> deserializePM(byte[] pm, byte[] merchantSignature)
 {
     int offset = 0;
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
     byte[] pi = deserializeItem(pm, offset);
     offset += pi.length;
+    offset += Integer.BYTES;
 
     byteArrayOutputStream.write(pm, offset, pm.length - offset);
-    byte[] encrSig = byteArrayOutputStream.toByteArray();
+    byte[] clientSignature = byteArrayOutputStream.toByteArray();
 
     //card number
     offset = 0;
     byte[] cardN = deserializeItem(pi, 0);
     offset += cardN.length;
+    offset += Integer.BYTES;
 
     //card expDate
     byte[] cardExp = deserializeItem(pi, offset);
     offset += cardExp.length;
+    offset += Integer.BYTES;
 
     //card pin
     byte[] pin = deserializeItem(pi, offset);
     offset += pin.length;
+    offset += Integer.BYTES;
 
     //session id
     byte[] sessionID = deserializeItem(pi, offset);
     offset += sessionID.length;
+    offset += Integer.BYTES;
 
     //amount
-    byte[] amount = deserializeItem(pi, offset);
-    offset += amount.length;
+    byte[] amountBytes = deserializeItem(pi, offset);
+    offset += amountBytes.length;
+    offset += Integer.BYTES;
+    double amount = bytesToDouble(amountBytes);
 
     //client pub key
     byte[] clientReceivedPubKey = deserializeItem(pi,offset);
     offset += clientReceivedPubKey.length;
+    offset += Integer.BYTES;
 
     byte[] authClientPubKey = clientPubKey.getEncoded();
     if (clientReceivedPubKey.length != authClientPubKey.length)
@@ -268,20 +237,145 @@ public Pair<byte[], byte[]> deserializePM(byte[] pm)
     //nonce
     byte[] nonce = deserializeItem(pi,offset);
     offset += nonce.length;
+    offset += Integer.BYTES;
 
     //merchant name
     byte[] merchantName = deserializeItem(pi, offset);
-
-    if(!checkInfo(Arrays.toString(cardN), Arrays.toString(cardExp), Arrays.toString(pin), sessionID,
-            clientReceivedPubKey, amount, encrSig))
+    try
     {
+        if(!checkInfo(new String(cardN, StandardCharsets.UTF_8), new String(cardExp, StandardCharsets.UTF_8), new String(pin, StandardCharsets.UTF_8), sessionID,
+                clientReceivedPubKey, amountBytes, clientSignature, nonce, merchantName))
+        {
+            return null;
+        }
+
+        byteArrayOutputStream.reset();
+        byteArrayOutputStream.write(sessionID);
+        byteArrayOutputStream.write(this.clientPubKey.getEncoded());
+        byteArrayOutputStream.write(amountBytes);
+        byte[] merchantToCompare = byteArrayOutputStream.toByteArray();
+        if (!checkSignature(merchantSignature, this.merchantPubKey, merchantToCompare))
+        {
+            return null;
+        }
+        return new Pair<>(sessionID, amountBytes);
+    }
+    catch (IOException | NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException |
+            BadPaddingException | IllegalBlockSizeException excp)
+    {
+        excp.printStackTrace();
         return null;
     }
-
-    return new Pair<>(sessionID, amount);
 }
 
-public void sendResponse2Merchant( Pair<byte[], byte[]> sessionID_amount)
+
+private boolean initClientConnection()
+{
+    try
+    {
+        ServerSocket client2PgServer = new ServerSocket(CLIENT_TO_GATEWAY_PORT);
+        System.out.println("\nWaiting for client ...");
+
+        //initialize socket and input stream
+        this.client2PgSocket = client2PgServer.accept();
+        System.out.println("Client accepted");
+
+        return true;
+    }
+    catch(IOException exception)
+    {
+        exception.printStackTrace();
+        return false;
+    }
+}
+
+private boolean initMerchantConnection()
+{
+    // starts server and waits for a connection
+    try
+    {
+        ServerSocket merchant2PgServer = new ServerSocket(MERCHANT_TO_GATEWAY_PORT);
+        System.out.println("Payment Gateway started");
+        System.out.println("\nWaiting for merchant ...");
+
+        //initialize socket and input stream
+        this.merchant2PgSocket = merchant2PgServer.accept();
+        System.out.println("Merchant accepted");
+
+        return true;
+    }
+    catch(IOException exception)
+    {
+        exception.printStackTrace();
+        return false;
+    }
+}
+
+private boolean pg2ClientHandshake()
+{
+    try
+    {
+        // payment gateway -> client : payment gateway PubKey
+        ObjectOutputStream client2PgOutput = new ObjectOutputStream(this.client2PgSocket.getOutputStream());
+        client2PgOutput.writeObject(this.asymKeysInfr.getPublicKey());
+
+        // client -> payment gateway : clientPubKey
+        ObjectInputStream client2PgInput = new ObjectInputStream(this.client2PgSocket.getInputStream());
+        this.clientPubKey = (PublicKey) client2PgInput.readObject();
+
+        // client -> payment gateway: {clientSymmetricKey}merchantPubKey
+        byte[] encrCustomerSymKey = (byte[]) client2PgInput.readObject();
+        byte[] decrCustomerSymKey = this.asymKeysInfr.encryptDecryptMessage(encrCustomerSymKey, Cipher.DECRYPT_MODE, null, null);
+        this.client2PgSymKeysInfr = new SymKeysInfrastructure(new SecretKeySpec(decrCustomerSymKey, "AES"));
+
+        // payment gateway -> client: {acknowledgement}clientSymmetricKey
+        client2PgOutput.writeObject(client2PgSymKeysInfr.encryptMessage(ACKNOWLEDGE_CLIENT.getBytes()));
+        return true;
+    }
+    catch (IOException | ClassNotFoundException | InvalidKeyException | NoSuchAlgorithmException |
+            NoSuchPaddingException | InvalidAlgorithmParameterException exception)
+    {
+        exception.printStackTrace();
+        return false;
+    }
+}
+
+private boolean pg2MerchantHandshake()
+{
+    try
+    {
+        // merchant -> client: merchant public key
+        this.merchant2pgOutput = new ObjectOutputStream(this.merchant2PgSocket.getOutputStream());
+        this.merchant2pgOutput.writeObject(asymKeysInfr.getPublicKey());
+
+        // client -> merchant: client public key
+        this.merchant2pgInput = new ObjectInputStream(this.merchant2PgSocket.getInputStream());
+        this.merchantPubKey = (PublicKey) this.merchant2pgInput.readObject();
+
+        // client -> merchant: {clientSymmetricKey}merchantPubKey
+        byte[] encrMerchantSymKey = (byte[]) this.merchant2pgInput.readObject();
+        byte[] decrMerchantSymKey = this.asymKeysInfr.encryptDecryptMessage(encrMerchantSymKey, Cipher.DECRYPT_MODE, null, null);
+        this.merchant2PgSymKeysInfr = new SymKeysInfrastructure(new SecretKeySpec(decrMerchantSymKey, "AES"));
+
+        //merchant -> client: {acknowledgement}clientSymmetricKey
+        this.merchant2pgOutput.writeObject(merchant2PgSymKeysInfr.encryptMessage(ACKNOWLEDGE_MERCHANT.getBytes()));
+        return true;
+    }
+    catch (IOException | ClassNotFoundException | InvalidKeyException | NoSuchAlgorithmException |
+            NoSuchPaddingException | InvalidAlgorithmParameterException exception)
+    {
+        exception.printStackTrace();
+        return false;
+    }
+}
+
+private byte[] receiveCommand() throws IOException, ClassNotFoundException
+{
+    byte[] encrPaymentInfo = (byte[]) this.merchant2pgInput.readObject();
+    return this.merchant2PgSymKeysInfr.decryptMessage(encrPaymentInfo);
+}
+
+private void sendResponse2Merchant( Pair<byte[], byte[]> sessionID_amount)
 {
     try
     {
@@ -320,62 +414,9 @@ public void sendResponse2Merchant( Pair<byte[], byte[]> sessionID_amount)
     }
 }
 
-private boolean checkInfo(String cardN, String cardExp, String pin, byte[] sessionID, byte[] clientReceivedPubKey,
-                          byte[]amount, byte[] encrSig)
-{
-    if (!checkCard(cardN, cardExp, pin))
-    {
-        System.out.println("Card Information incorrect!");
-        return false;
-    }
-
-    try
-    {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        byteArrayOutputStream.write(sessionID);
-        byteArrayOutputStream.write(clientReceivedPubKey);
-        byteArrayOutputStream.write(amount);
-
-        byte[] toCompare = byteArrayOutputStream.toByteArray();
-        if (!checkSignature(encrSig, merchantPubKey, toCompare))
-        {
-            System.out.println("Signatures don't match!");
-            return false;
-        }
-        return true;
-    }
-    catch (IOException | NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException |
-            BadPaddingException | IllegalBlockSizeException excp)
-    {
-        excp.printStackTrace();
-        return false;
-    }
-}
-
-public boolean initClientConnection()
-{
-    try
-    {
-        this.client2PgServer = new ServerSocket(CLIENT_TO_GATEWAY_PORT);
-        System.out.println("\nWaiting for client ...");
-
-        //initialize socket and input stream
-        this.client2PgSocket = this.client2PgServer.accept();
-        System.out.println("Client accepted");
-
-        return true;
-    }
-    catch(IOException exception)
-    {
-        exception.printStackTrace();
-        return false;
-    }
-}
-
 public static void main(String[] args) throws IOException, ClassNotFoundException
 {
-    String address = "127.0.0.1";
-    PaymentGateway paymentGateway = new PaymentGateway(address);
+    PaymentGateway paymentGateway = new PaymentGateway();
 
     boolean flag = false;
     while(true)
